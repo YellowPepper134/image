@@ -1,0 +1,10 @@
+{
+  "builds": [{
+    "src": "api/image2.py",
+    "use": "@vercel/python"
+  }],
+  "routes": [{
+    "src": "/api/image2/(.*)",
+    "dest": "/api/image2"
+  }]
+}
