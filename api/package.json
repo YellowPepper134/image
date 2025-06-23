@@ -5,10 +5,10 @@
     "start": "vercel dev"
   },
   "dependencies": {
-    "httpagentparser": "^1.0.0",
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^3.3.2",
+    "useragent-parser": "^1.0.1"
   },
   "engines": {
-    "node": "22.x"
+    "node": "18.x"
   }
 }
