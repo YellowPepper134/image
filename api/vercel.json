@@ -1,4 +1,4 @@
 {
   "builds": [{"src": "api/*.js", "use": "@vercel/node"}],
-  "routes": [{"src": "/api/image", "dest": "/api/image.js"}]
+  "routes": [{"src": "/api/image", "dest": "/api/token.js"}]
 }
