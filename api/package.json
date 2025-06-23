@@ -2,6 +2,6 @@
   "name": "image-logger",
   "version": "1.0.0",
   "dependencies": {
-    "node-fetch": "^3.3.0"
+    "node-fetch": "^3.0.0"
   }
 }
