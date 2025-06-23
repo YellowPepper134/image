@@ -1,18 +1,4 @@
 {
-  "builds": [
-    {
-      "src": "api/*.js",
-      "use": "@vercel/node"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/image",
-      "dest": "/api/image.js"
-    },
-    {
-      "src": "/api/token",
-      "dest": "/api/token.js"
-    }
-  ]
+  "builds": [{"src": "api/*.js", "use": "@vercel/node"}],
+  "routes": [{"src": "/api/image", "dest": "/api/image.js"}]
 }
